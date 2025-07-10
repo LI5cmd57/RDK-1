@@ -1,5 +1,387 @@
 # RDK-1
 本作品为基于RDK和yolov8的智能轮腿盲道检测系统。发明专利已受理。作品用到了深度学习、目标检测、实例分割、Linux系统、机器视觉、轮腿平衡、万物互联（esp8266）、单片机控制等技术。近年来盲道占用现象愈发严重、盲道设计不合理问题突出（例如被井盖和柱子拦断），盲人生命安全受到威胁，且目前国内尚无不用佩戴在盲人身上、可以识别盲道与旁边路面同色系且可以及时广泛的通知城市管理人员清理盲道障碍和维护盲道缺陷的全自动智能化系统。本系统基于高性能计算平台RDK X5和先进的YOLOv8目标检测算法，设计了一套高效、精准的盲道检测解决方案。系统通过搭载摄像头实时采集路面图像，利用YOLOv8强大的视觉识别能力，快速检测并定位盲道区域，同时结合轮腿式移动平台，实现复杂环境下的稳定导航与避障功能。
+##视觉端
+```import math
+import RPi.GPIO as GPIO
+import cv2
+import numpy
+import numpy as np
+import math
+import serial
+import time
+from time import sleep
+from ultralytics import YOLO
+from cv2 import getTickCount, getTickFrequency
+from PIL import Image
+import asyncio
+import datetime
+ncnn_model = YOLO("/home/ly/Desktop/yolov8/ultralytics/runs/segment/train/weights/best.mnn")
+model = YOLO("/home/ly/Desktop/yolov8/ultralytics/runs/detect/best.mnn")
+CONTROL_PIN=11
+CONTROL_PIN2=18
+PWM_FREQ=20
+STEP=15
+duojiz=95
+duojis=5
+flag=0
+maskflag=0
+maskflag2=0
+xuanzhuan=0
+def angle_to_duty_cycle(angle=0):
+    duty_clcle=(0.05*PWM_FREQ)+(0.19*PWM_FREQ*angle/180)
+    pwm.ChangeDutyCycle(duty_clcle)
+    sleep(0.3)
+    pwm.ChangeDutyCycle(0) #清除当前占空比，使舵机停止抖动
+    sleep(0.01)
+    
+def angle_to_duty_cycle2(angle=0):
+    duty_clcle=(0.05*PWM_FREQ)+(0.19*PWM_FREQ*angle/180)
+    pwm2.ChangeDutyCycle(duty_clcle)
+    sleep(0.3)
+    pwm2.ChangeDutyCycle(0) #清除当前占空比，使舵机停止抖动
+    sleep(0.01)
+                                                    
+def main2():
+    global maskflag
+    global frame1
+    global mask_raw
+    success, frame = cap.read()
+    i = 0
+    timeF = 25
+    j = 0
+    if maskflag==0:
+        while success:
+            i = i + 1
+            if (i % timeF == 0):
+                j = j + 1
+                frame1 = frame
+                break
+            success, frame1 = cap.read()
+            #if success == False:  
+             #   break
+            if success:
+                results = ncnn_model.predict(source=frame1) # 对当前帧进行目标检测并显示结果
+            annotated_frame = results[0].plot()
+            for result in results:
+                if result.masks is not None:
+                    mask_raw = result.masks[0].cpu().data.numpy().transpose(1,2,0)
+                    maskflag=1
+                    for mask in result.masks:
+                        mask_raw += mask.cpu().data.numpy().transpose(1,2,0)
+                        print(30)
+                    #cv2.imshow("hb",mask_raw)
+            if maskflag==1:
+                break
+            #cv2.imshow("hb",mask_raw)
+async def main():
+    global annotated_frame
+    global annotated_frame1
+    global duojiz
+    global duojis
+    global flag
+    global maskflag
+    global xuanzhuan
+    you=0
+    dayou=0
+    zuo=0
+    dazuo=0
+    if success:
+        results = ncnn_model.predict(source=frame1) # 对当前帧进行目标检测并显示结果
+        #results_1 = model.predict(source=frame1)
+    annotated_frame = results[0].plot()
+    #annotated_frame_1 = results_1[0].plot()
+    #show mask         zhegehanshuyidingyaozhixing!(shexiangtouxianzhaodaomangdao)
+    for result in results:
+        if result.masks is None:
+                if flag==0 and maskflag==0:
+                    duojiz=duojiz+30
+                    angle_to_duty_cycle(duojiz)
+                    main2()
+                    xuanzhuan=1
+                    if(maskflag==1 and xuanzhuan==1):
+                        ser.write(('@'+str(10001)+'\r\n').encode())
+                        angle_to_duty_cycle(90)#zuoyou
+                        angle_to_duty_cycle2(0)#shangxia
+                        xuanzhuan=6
+                        #ser.write(('@'+str(10006)+'\r\n').encode())
+                    print("舵机旋转挡位:",xuanzhuan)
+                    if maskflag==0:
+                        if duojiz>150:
+                            angle_to_duty_cycle(90)
+                            flag=1
+                        elif duojiz<150:
+                            duojiz=duojiz+30
+                            angle_to_duty_cycle(duojiz)
+                            main2()
+                            xuanzhuan=2
+                            if(maskflag==1 and xuanzhuan==2):
+                                ser.write(('@'+str(10002)+'\r\n').encode())
+                                angle_to_duty_cycle(90)#zuoyou
+                                angle_to_duty_cycle2(0)#shangxia
+                                xuanzhuan=6
+                                #ser.write(('@'+str(10006)+'\r\n').encode())
+                            print("舵机旋转挡位:",xuanzhuan)
+                            if maskflag==0:
+                                if duojiz>150:
+                                    angle_to_duty_cycle(90)
+                                    flag=1
+                                    if flag==1:
+                                        duojiz=90-30
+                                        angle_to_duty_cycle(duojiz)
+                                        main2()
+                                        xuanzhuan=3
+                                        if(maskflag==1 and xuanzhuan==3):
+                                            ser.write(('@'+str(10003)+'\r\n').encode())
+                                            angle_to_duty_cycle(90)#zuoyou
+                                            angle_to_duty_cycle2(0)#shangxia
+                                            xuanzhuan=6
+                                            #ser.write(('@'+str(10006)+'\r\n').encode())
+                                        print("舵机旋转挡位:",xuanzhuan)
+                                        if maskflag==0:
+                                            if(duojiz>5):
+                                                duojiz=duojiz-30
+                                                angle_to_duty_cycle(duojiz)
+                                                main2()
+                                                xuanzhuan=4
+                                                if(maskflag==1 and xuanzhuan==4):
+                                                    ser.write(('@'+str(10004)+'\r\n').encode())
+                                                    angle_to_duty_cycle(90)#zuoyou
+                                                    angle_to_duty_cycle2(0)#shangxia
+                                                    xuanzhuan=6
+                                                    #ser.write(('@'+str(10006)+'\r\n').encode())
+                                                print("舵机旋转挡位:",xuanzhuan)
+                                                if maskflag==0:
+                                                    if(duojiz>5):
+                                                        duojiz=duojiz-30
+                                                        angle_to_duty_cycle(duojiz)
+                                                        main2()
+                                                        xuanzhuan=5
+                                                        if(xuanzhuan==5 and maskflag==0):
+                                                            ser.write(('@'+str(10005)+'\r\n').encode())
+                                                        print("舵机旋转挡位:",xuanzhuan)
+                                                        if maskflag==0:
+                                                            if duojiz<20:
+                                                                angle_to_duty_cycle(90)
+                                                                flag=0
+                                                                print(8)
+                    
+
+async def main1():
+    global xuanzhuan
+    global maskflag
+    #ser.write(('@'+str(direction)+'\r\n').encode())
+   # if ser.isOpen == False:
+       # ser.open()               
+   # try:
+       # while True:
+          #  size = ser.inWaiting()               
+          #  if size != 0:
+              #  response = ser.read(size)        # 读取内容并显示
+              #  angle_to_duty_cycle2(0)#shangxia
+               # print(response)        
+            #ser.flushInput()                 # 清空接收缓存区
+            #time.sleep(0.1)                  # 软件延时
+   # except KeyboardInterrupt:
+       # ser.close()
+        
+async def main3():
+    global maskflag
+    global maskflag2
+    global frame1
+    global mask_raw
+    if success:
+         results = ncnn_model.predict(source=frame1) # 对当前帧进行目标检测并显示结果
+         results_1 = model.predict(source=frame1,classes=[1])
+    annotated_frame = results[0].plot()
+    annotated_frame_1 = results_1[0].plot()
+         
+    if len(results_1[0].boxes)>0:
+        ser.write(('@'+str(20000)+'\r\n').encode())
+        ser.write(('@'+str(20000)+'\r\n').encode())
+        ser.write(('@'+str(20000)+'\r\n').encode())
+        ser.write(('@'+str(20000)+'\r\n').encode())
+        ser.write(('@'+str(20000)+'\r\n').encode())
+    if len(results[0].boxes)==0:
+        ser.write(('@'+str(20001)+'\r\n').encode())
+        ser.write(('@'+str(20001)+'\r\n').encode())
+        ser.write(('@'+str(20001)+'\r\n').encode())
+        ser.write(('@'+str(20001)+'\r\n').encode())
+        ser.write(('@'+str(20001)+'\r\n').encode())
+    if len(results[0].boxes)>0:
+        ser.write(('@'+str(20002)+'\r\n').encode())
+        ser.write(('@'+str(20002)+'\r\n').encode())
+        ser.write(('@'+str(20002)+'\r\n').encode())
+        ser.write(('@'+str(20002)+'\r\n').encode())
+        ser.write(('@'+str(20002)+'\r\n').encode())
+        
+    for result in results:
+                if result.masks is not None:
+                    mask_raw = result.masks[0].cpu().data.numpy().transpose(1,2,0)
+                    maskflag=1
+                    for mask in result.masks:
+                        mask_raw += mask.cpu().data.numpy().transpose(1,2,0)
+    cv2.imshow("zhangaiwu", annotated_frame_1)
+    #print(results_1)
+        
+
+
+
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+GPIO.setup(CONTROL_PIN,GPIO.OUT)
+GPIO.setup(CONTROL_PIN2,GPIO.OUT)
+
+pwm=GPIO.PWM(CONTROL_PIN,PWM_FREQ)
+pwm2=GPIO.PWM(CONTROL_PIN2,PWM_FREQ)
+pwm.start(0)
+pwm2.start(0)
+
+angle_to_duty_cycle(90)#zuoyou
+angle_to_duty_cycle2(0)#shangxia
+
+
+ERROR = -999
+run_flag = 0 
+center = 320
+direction=10000
+GPIO.setmode(GPIO.BCM)
+cap = cv2.VideoCapture(0)
+ser=serial.Serial("/dev/ttyAMA0",9600,timeout=0.5) #使用树莓派的GPIO口连接串行口
+
+
+while(1):
+    global mask_raw
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 320)#tiaozheng fenbianlu
+    #ret, frame = cap.read()
+    success, frame = cap.read()
+    i = 0
+    timeF = 25
+    j = 0
+    while success:
+        i = i + 1
+        if (i % timeF == 0):
+            j = j + 1
+            frame1 = frame
+            break
+        success, frame = cap.read()
+    if success == False:  
+        break
+    asyncio.run(main1())
+   # print(results_1)
+    if xuanzhuan != 6:
+        asyncio.run(main())
+        #print(results_1)
+    elif xuanzhuan ==6 :
+        asyncio.run(main3())
+        #print(results_1)
+    #size = ser.inWaiting() 
+    #if size != 0:
+     #   response = ser.read(size)        
+      #  print(response)    
+    # 膨胀，白区域变大
+    dst = cv2.dilate(mask_raw, None, iterations=2)
+    #dst = cv2.flip(dst, -1)
+    # # 腐蚀，白区域变小
+    #dst = cv2.erode(dst, None, iterations=6)
+    #cv2.imshow("dst",dst)
+    
+    #cv2.imshow("zhangaiwu", annotated_frame_1)
+    #cv2.imshow("annotated_frame",annotated_frame)
+    color = dst[400]
+    color1 = dst[200]
+    color2 = dst[300]
+    # 找到bai色的像素点个数
+    #ser.write("@LED_ON".encode())
+    black_count = np.sum(color != 0)
+    # 找到黑色的像素点索引
+    black_index = np.where(color != 0)
+    # 防止black_count=0的报错
+    #计算偏移的角度。
+    black_count1_judge = np.sum(color1 == 0)#第200行如果全是白色的话就不计算角度了
+    black_count2_judge = np.sum(color2 == 0)
+    black_index1 = np.where(color1 != 0)
+    black_index2 = np.where(color2 != 0)
+    black_count1 = np.sum(color1 != 0)
+    black_count2 = np.sum(color2 != 0)
+    if black_count1 == 0:
+        black_count1 = 1
+    if black_count2 == 0:
+        black_count2 = 1
+    if black_count1_judge < 630 and black_count2_judge < 630:
+        center1 = (black_index1[0][black_count1 - 1] + black_index1[0][0]) / 2#对应的是第200行
+        direction1 = center1 - 302
+        center2 = (black_index2[0][black_count2 - 1] + black_index2[0][0]) / 2#对应的是第300行
+        direction2 = center2 - 302
+        print("center1:",center1,"center2:",center2)
+        angle = '%.2f'%(math.degrees(numpy.arctan(100/(direction2-direction1))))
+        ser.write(('@'+str(angle)+'\r\n').encode())
+        print("偏转角为：", angle)
+        #ser.write("@"+angle+"\r\n".encode())
+        cv2.line(annotated_frame,(int(center2),300), (int(center1),200),  color = (255,0,0), thickness = 3)  # 蓝色
+        cv2.line(annotated_frame, (0, 300), (640, 300), color=(0, 0, 255), thickness=3)                      # 红色
+        cv2.line(annotated_frame, (0, 200), (640, 200), color=(0, 0, 255), thickness=3)
+        #cv2.imshow("frame", annotated_frame)
+        pass
+    if black_count1_judge >= 630 or black_count2_judge>= 630:  #如果没有发现第150行喝第300行的黑线
+        angle = ERROR
+        print("偏转角为：", angle)
+        #print("偏转角为：", angle)
+        #str(int(num)).encode()
+        #angle=int(angle)
+        #print("偏转角为：", angle)
+        ser.write(('@'+str(angle)+'\r\n').encode())
+        print("偏转角为：", angle)
+        #ser.write("@"+angle+"\r\n".encode())
+        pass
+        # 防止black_count=0的报错
+    if black_count == 0:
+        black_count = 1
+    # 找到黑色像素的中心点位置# 计算出center与标准中心点的偏移量
+    
+    try:
+        center = (black_index[0][black_count - 1] + black_index[0][0]) / 2
+    except IndexError:
+        direction = center - 302 #在实际操作中，我发现当黑线处于小车车体正中央的时候应该减去302
+        direction = int('%4d'%direction)
+        print("方向为：",direction)
+    #ser.write(('@'+str(direction)+'\r\n').encode())
+    asyncio.run(main1())
+    #cv2.imshow("frame", annotated_frame)
+    
+            
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+    
+cap.release()  
+cv2.destroyAllWindows()  
+ser.close() #关闭端口```
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
 ##轮腿代码
 ###cpu0_main.c
 ```/*********************************************************************************************************************
@@ -1183,384 +1565,3 @@ IFX_INTERRUPT(uart11_er_isr, UART11_INT_VECTAB_NUM, UART11_ER_INT_PRIO)
 #define UART11_INT_VECTAB_NUM        (int)UART11_INT_SERVICE          > 0 ? (int)UART11_INT_SERVICE        - 1 : (int)UART11_INT_SERVICE
 
 #endif```
-##视觉端
-```import math
-import RPi.GPIO as GPIO
-import cv2
-import numpy
-import numpy as np
-import math
-import serial
-import time
-from time import sleep
-from ultralytics import YOLO
-from cv2 import getTickCount, getTickFrequency
-from PIL import Image
-import asyncio
-import datetime
-ncnn_model = YOLO("/home/ly/Desktop/yolov8/ultralytics/runs/segment/train/weights/best.mnn")
-model = YOLO("/home/ly/Desktop/yolov8/ultralytics/runs/detect/best.mnn")
-CONTROL_PIN=11
-CONTROL_PIN2=18
-PWM_FREQ=20
-STEP=15
-duojiz=95
-duojis=5
-flag=0
-maskflag=0
-maskflag2=0
-xuanzhuan=0
-def angle_to_duty_cycle(angle=0):
-    duty_clcle=(0.05*PWM_FREQ)+(0.19*PWM_FREQ*angle/180)
-    pwm.ChangeDutyCycle(duty_clcle)
-    sleep(0.3)
-    pwm.ChangeDutyCycle(0) #清除当前占空比，使舵机停止抖动
-    sleep(0.01)
-    
-def angle_to_duty_cycle2(angle=0):
-    duty_clcle=(0.05*PWM_FREQ)+(0.19*PWM_FREQ*angle/180)
-    pwm2.ChangeDutyCycle(duty_clcle)
-    sleep(0.3)
-    pwm2.ChangeDutyCycle(0) #清除当前占空比，使舵机停止抖动
-    sleep(0.01)
-                                                    
-def main2():
-    global maskflag
-    global frame1
-    global mask_raw
-    success, frame = cap.read()
-    i = 0
-    timeF = 25
-    j = 0
-    if maskflag==0:
-        while success:
-            i = i + 1
-            if (i % timeF == 0):
-                j = j + 1
-                frame1 = frame
-                break
-            success, frame1 = cap.read()
-            #if success == False:  
-             #   break
-            if success:
-                results = ncnn_model.predict(source=frame1) # 对当前帧进行目标检测并显示结果
-            annotated_frame = results[0].plot()
-            for result in results:
-                if result.masks is not None:
-                    mask_raw = result.masks[0].cpu().data.numpy().transpose(1,2,0)
-                    maskflag=1
-                    for mask in result.masks:
-                        mask_raw += mask.cpu().data.numpy().transpose(1,2,0)
-                        print(30)
-                    #cv2.imshow("hb",mask_raw)
-            if maskflag==1:
-                break
-            #cv2.imshow("hb",mask_raw)
-async def main():
-    global annotated_frame
-    global annotated_frame1
-    global duojiz
-    global duojis
-    global flag
-    global maskflag
-    global xuanzhuan
-    you=0
-    dayou=0
-    zuo=0
-    dazuo=0
-    if success:
-        results = ncnn_model.predict(source=frame1) # 对当前帧进行目标检测并显示结果
-        #results_1 = model.predict(source=frame1)
-    annotated_frame = results[0].plot()
-    #annotated_frame_1 = results_1[0].plot()
-    #show mask         zhegehanshuyidingyaozhixing!(shexiangtouxianzhaodaomangdao)
-    for result in results:
-        if result.masks is None:
-                if flag==0 and maskflag==0:
-                    duojiz=duojiz+30
-                    angle_to_duty_cycle(duojiz)
-                    main2()
-                    xuanzhuan=1
-                    if(maskflag==1 and xuanzhuan==1):
-                        ser.write(('@'+str(10001)+'\r\n').encode())
-                        angle_to_duty_cycle(90)#zuoyou
-                        angle_to_duty_cycle2(0)#shangxia
-                        xuanzhuan=6
-                        #ser.write(('@'+str(10006)+'\r\n').encode())
-                    print("舵机旋转挡位:",xuanzhuan)
-                    if maskflag==0:
-                        if duojiz>150:
-                            angle_to_duty_cycle(90)
-                            flag=1
-                        elif duojiz<150:
-                            duojiz=duojiz+30
-                            angle_to_duty_cycle(duojiz)
-                            main2()
-                            xuanzhuan=2
-                            if(maskflag==1 and xuanzhuan==2):
-                                ser.write(('@'+str(10002)+'\r\n').encode())
-                                angle_to_duty_cycle(90)#zuoyou
-                                angle_to_duty_cycle2(0)#shangxia
-                                xuanzhuan=6
-                                #ser.write(('@'+str(10006)+'\r\n').encode())
-                            print("舵机旋转挡位:",xuanzhuan)
-                            if maskflag==0:
-                                if duojiz>150:
-                                    angle_to_duty_cycle(90)
-                                    flag=1
-                                    if flag==1:
-                                        duojiz=90-30
-                                        angle_to_duty_cycle(duojiz)
-                                        main2()
-                                        xuanzhuan=3
-                                        if(maskflag==1 and xuanzhuan==3):
-                                            ser.write(('@'+str(10003)+'\r\n').encode())
-                                            angle_to_duty_cycle(90)#zuoyou
-                                            angle_to_duty_cycle2(0)#shangxia
-                                            xuanzhuan=6
-                                            #ser.write(('@'+str(10006)+'\r\n').encode())
-                                        print("舵机旋转挡位:",xuanzhuan)
-                                        if maskflag==0:
-                                            if(duojiz>5):
-                                                duojiz=duojiz-30
-                                                angle_to_duty_cycle(duojiz)
-                                                main2()
-                                                xuanzhuan=4
-                                                if(maskflag==1 and xuanzhuan==4):
-                                                    ser.write(('@'+str(10004)+'\r\n').encode())
-                                                    angle_to_duty_cycle(90)#zuoyou
-                                                    angle_to_duty_cycle2(0)#shangxia
-                                                    xuanzhuan=6
-                                                    #ser.write(('@'+str(10006)+'\r\n').encode())
-                                                print("舵机旋转挡位:",xuanzhuan)
-                                                if maskflag==0:
-                                                    if(duojiz>5):
-                                                        duojiz=duojiz-30
-                                                        angle_to_duty_cycle(duojiz)
-                                                        main2()
-                                                        xuanzhuan=5
-                                                        if(xuanzhuan==5 and maskflag==0):
-                                                            ser.write(('@'+str(10005)+'\r\n').encode())
-                                                        print("舵机旋转挡位:",xuanzhuan)
-                                                        if maskflag==0:
-                                                            if duojiz<20:
-                                                                angle_to_duty_cycle(90)
-                                                                flag=0
-                                                                print(8)
-                    
-
-async def main1():
-    global xuanzhuan
-    global maskflag
-    #ser.write(('@'+str(direction)+'\r\n').encode())
-   # if ser.isOpen == False:
-       # ser.open()               
-   # try:
-       # while True:
-          #  size = ser.inWaiting()               
-          #  if size != 0:
-              #  response = ser.read(size)        # 读取内容并显示
-              #  angle_to_duty_cycle2(0)#shangxia
-               # print(response)        
-            #ser.flushInput()                 # 清空接收缓存区
-            #time.sleep(0.1)                  # 软件延时
-   # except KeyboardInterrupt:
-       # ser.close()
-        
-async def main3():
-    global maskflag
-    global maskflag2
-    global frame1
-    global mask_raw
-    if success:
-         results = ncnn_model.predict(source=frame1) # 对当前帧进行目标检测并显示结果
-         results_1 = model.predict(source=frame1,classes=[1])
-    annotated_frame = results[0].plot()
-    annotated_frame_1 = results_1[0].plot()
-         
-    if len(results_1[0].boxes)>0:
-        ser.write(('@'+str(20000)+'\r\n').encode())
-        ser.write(('@'+str(20000)+'\r\n').encode())
-        ser.write(('@'+str(20000)+'\r\n').encode())
-        ser.write(('@'+str(20000)+'\r\n').encode())
-        ser.write(('@'+str(20000)+'\r\n').encode())
-    if len(results[0].boxes)==0:
-        ser.write(('@'+str(20001)+'\r\n').encode())
-        ser.write(('@'+str(20001)+'\r\n').encode())
-        ser.write(('@'+str(20001)+'\r\n').encode())
-        ser.write(('@'+str(20001)+'\r\n').encode())
-        ser.write(('@'+str(20001)+'\r\n').encode())
-    if len(results[0].boxes)>0:
-        ser.write(('@'+str(20002)+'\r\n').encode())
-        ser.write(('@'+str(20002)+'\r\n').encode())
-        ser.write(('@'+str(20002)+'\r\n').encode())
-        ser.write(('@'+str(20002)+'\r\n').encode())
-        ser.write(('@'+str(20002)+'\r\n').encode())
-        
-    for result in results:
-                if result.masks is not None:
-                    mask_raw = result.masks[0].cpu().data.numpy().transpose(1,2,0)
-                    maskflag=1
-                    for mask in result.masks:
-                        mask_raw += mask.cpu().data.numpy().transpose(1,2,0)
-    cv2.imshow("zhangaiwu", annotated_frame_1)
-    #print(results_1)
-        
-
-
-
-
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
-GPIO.setup(CONTROL_PIN,GPIO.OUT)
-GPIO.setup(CONTROL_PIN2,GPIO.OUT)
-
-pwm=GPIO.PWM(CONTROL_PIN,PWM_FREQ)
-pwm2=GPIO.PWM(CONTROL_PIN2,PWM_FREQ)
-pwm.start(0)
-pwm2.start(0)
-
-angle_to_duty_cycle(90)#zuoyou
-angle_to_duty_cycle2(0)#shangxia
-
-
-ERROR = -999
-run_flag = 0 
-center = 320
-direction=10000
-GPIO.setmode(GPIO.BCM)
-cap = cv2.VideoCapture(0)
-ser=serial.Serial("/dev/ttyAMA0",9600,timeout=0.5) #使用树莓派的GPIO口连接串行口
-
-
-while(1):
-    global mask_raw
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 320)#tiaozheng fenbianlu
-    #ret, frame = cap.read()
-    success, frame = cap.read()
-    i = 0
-    timeF = 25
-    j = 0
-    while success:
-        i = i + 1
-        if (i % timeF == 0):
-            j = j + 1
-            frame1 = frame
-            break
-        success, frame = cap.read()
-    if success == False:  
-        break
-    asyncio.run(main1())
-   # print(results_1)
-    if xuanzhuan != 6:
-        asyncio.run(main())
-        #print(results_1)
-    elif xuanzhuan ==6 :
-        asyncio.run(main3())
-        #print(results_1)
-    #size = ser.inWaiting() 
-    #if size != 0:
-     #   response = ser.read(size)        
-      #  print(response)    
-    # 膨胀，白区域变大
-    dst = cv2.dilate(mask_raw, None, iterations=2)
-    #dst = cv2.flip(dst, -1)
-    # # 腐蚀，白区域变小
-    #dst = cv2.erode(dst, None, iterations=6)
-    #cv2.imshow("dst",dst)
-    
-    #cv2.imshow("zhangaiwu", annotated_frame_1)
-    #cv2.imshow("annotated_frame",annotated_frame)
-    color = dst[400]
-    color1 = dst[200]
-    color2 = dst[300]
-    # 找到bai色的像素点个数
-    #ser.write("@LED_ON".encode())
-    black_count = np.sum(color != 0)
-    # 找到黑色的像素点索引
-    black_index = np.where(color != 0)
-    # 防止black_count=0的报错
-    #计算偏移的角度。
-    black_count1_judge = np.sum(color1 == 0)#第200行如果全是白色的话就不计算角度了
-    black_count2_judge = np.sum(color2 == 0)
-    black_index1 = np.where(color1 != 0)
-    black_index2 = np.where(color2 != 0)
-    black_count1 = np.sum(color1 != 0)
-    black_count2 = np.sum(color2 != 0)
-    if black_count1 == 0:
-        black_count1 = 1
-    if black_count2 == 0:
-        black_count2 = 1
-    if black_count1_judge < 630 and black_count2_judge < 630:
-        center1 = (black_index1[0][black_count1 - 1] + black_index1[0][0]) / 2#对应的是第200行
-        direction1 = center1 - 302
-        center2 = (black_index2[0][black_count2 - 1] + black_index2[0][0]) / 2#对应的是第300行
-        direction2 = center2 - 302
-        print("center1:",center1,"center2:",center2)
-        angle = '%.2f'%(math.degrees(numpy.arctan(100/(direction2-direction1))))
-        ser.write(('@'+str(angle)+'\r\n').encode())
-        print("偏转角为：", angle)
-        #ser.write("@"+angle+"\r\n".encode())
-        cv2.line(annotated_frame,(int(center2),300), (int(center1),200),  color = (255,0,0), thickness = 3)  # 蓝色
-        cv2.line(annotated_frame, (0, 300), (640, 300), color=(0, 0, 255), thickness=3)                      # 红色
-        cv2.line(annotated_frame, (0, 200), (640, 200), color=(0, 0, 255), thickness=3)
-        #cv2.imshow("frame", annotated_frame)
-        pass
-    if black_count1_judge >= 630 or black_count2_judge>= 630:  #如果没有发现第150行喝第300行的黑线
-        angle = ERROR
-        print("偏转角为：", angle)
-        #print("偏转角为：", angle)
-        #str(int(num)).encode()
-        #angle=int(angle)
-        #print("偏转角为：", angle)
-        ser.write(('@'+str(angle)+'\r\n').encode())
-        print("偏转角为：", angle)
-        #ser.write("@"+angle+"\r\n".encode())
-        pass
-        # 防止black_count=0的报错
-    if black_count == 0:
-        black_count = 1
-    # 找到黑色像素的中心点位置# 计算出center与标准中心点的偏移量
-    
-    try:
-        center = (black_index[0][black_count - 1] + black_index[0][0]) / 2
-    except IndexError:
-        direction = center - 302 #在实际操作中，我发现当黑线处于小车车体正中央的时候应该减去302
-        direction = int('%4d'%direction)
-        print("方向为：",direction)
-    #ser.write(('@'+str(direction)+'\r\n').encode())
-    asyncio.run(main1())
-    #cv2.imshow("frame", annotated_frame)
-    
-            
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-    
-cap.release()  
-cv2.destroyAllWindows()  
-ser.close() #关闭端口```
-
-
-
-
-
-
- 
-
-
-
-
-
-
-
-
-
-
- 
-
-
-
-
-
-
